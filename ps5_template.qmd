@@ -1,0 +1,397 @@
+---
+title: "30538 Problem Set 5: Web Scraping"
+author: "Tarini Dewan"
+date: "November 9, 2024"
+format: 
+  pdf:
+    include-in-header: 
+       text: |
+         \usepackage{fvextra}
+         \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+include-before-body:
+  text: |
+    \RecustomVerbatimEnvironment{verbatim}{Verbatim}{
+      showspaces = false,
+      showtabs = false,
+      breaksymbolleft={},
+      breaklines
+    }
+output:
+  echo: false
+  eval: false
+---
+
+**Due 11/9 at 5:00PM Central. Worth 100 points + 10 points extra credit.**
+
+## Submission Steps (10 pts)
+1. This problem set is a paired problem set.
+2. Play paper, scissors, rock to determine who goes first. Call that person *Partner 1*.
+    - Partner 1 (name and cnet ID): Tarini Dewan, tarinidewan
+3. Partner 1 will accept the `ps5` and then share the link it creates with their partner. You can only share it with one partner so you will not be able to change it after your partner has accepted. 
+4. "This submission is our work alone and complies with the 30538 integrity policy." Add your initials to indicate your agreement: TD
+5. "I have uploaded the names of anyone else other than my partner and I worked with on the problem set **[here](https://docs.google.com/forms/d/185usrCREQaUbvAXpWhChkjghdGgmAZXA3lPWpXLLsts/edit)**": TD  (1 point)
+6. Late coins used this pset: 1 Late coins left after submission: 2
+7. Knit your `ps5.qmd` to an PDF file to make `ps5.pdf`, 
+    * The PDF should not be more than 25 pages. Use `head()` and re-size figures when appropriate. 
+8. (Partner 1): push  `ps5.qmd` and `ps5.pdf` to your github repo.
+9. (Partner 1): submit `ps5.pdf` via Gradescope. Add your partner on Gradescope.
+10. (Partner 1): tag your submission in Gradescope
+
+\newpage
+
+```{python}
+import pandas as pd
+import altair as alt
+import time
+import requests
+from bs4 import BeautifulSoup
+import numpy as np
+from datetime import datetime
+
+import warnings 
+warnings.filterwarnings('ignore')
+alt.renderers.enable("png")
+```
+
+
+## Step 1: Develop initial scraper and crawler
+
+### 1. Scraping (PARTNER 1)
+
+```{python}
+url = 'https://oig.hhs.gov/fraud/enforcement/'
+response = requests.get(url)
+soup = BeautifulSoup(response.content, 'lxml')
+
+# find all relevant li tags that contain an h2 element
+tag = soup.find_all('li')
+li_tag = soup.find_all(lambda t: t.name == 'li' and t.find_all('h2'))
+len(li_tag)
+
+# display the first li_tag
+#li_content = [li.contents for li in li_tag]
+#for item in li_content[0]:
+#  print(item)
+
+# create empty lists to store the data
+titles = []
+dates = []
+categories = []
+links = []
+
+# loop over each li_tag and save all the relevant attribute info
+for li in li_tag:
+  # get title
+  title = li.find('a').text.strip() if li.find('a') else None
+  titles.append(title)
+  # get date
+  date = li.find('span').text if li.find('span') else None
+  dates.append(date)
+  # get category
+  cat = li.find('ul').text if li.find('ul') else None
+  categories.append(cat)
+  # get link
+  link = li.find('a').get('href') if li.find('a') else None
+  links.append(link)
+# Attribution: ChatGPT
+# Query: I want to loop over each li_tag and save the title for each li_tag[0], li_tag[1], and so on
+
+# add entire path to the link
+for i in range(len(links)):
+  links[i] = 'https://oig.hhs.gov' + links[i]
+
+# create dataframe to store the data
+oig_df = pd.DataFrame({
+  'Title': titles,
+  'Date': dates,
+  'Category': categories,
+  'Link': links})
+print(oig_df.head())
+```
+
+### 2. Crawling (PARTNER 1)
+
+```{python}
+# create an empty list to store the agencies
+agencies = []
+
+# new url becomes the input into a new request
+for i in range(len(links)):
+  url = links[i]
+  #print(url)
+  response = requests.get(url)
+  soup = BeautifulSoup(response.content, 'lxml')
+
+# extract the agency text from the link
+#li_tag = soup.find_all(lambda t: t.name == 'li' and t.find_all('span') and not t.find_all('button') and not t.find_all('ul') and not t.find_all('a'))
+  #li_tag = soup.find_all(lambda t: t.name == 'li' and t.find('span', class_='padding-right-2 text-base') and not 'Date' in t.find('span', class_='padding-right-2 text-base').get_text())
+  ul_tag = soup.find('ul', class_ = 'usa-list usa-list--unstyled margin-y-2')
+  agency = np.nan
+  for ul in ul_tag:
+    if 'Agency' in ul.get_text():
+      agency = ul.get_text().replace('Agency:', '').replace('November 7, 2024;', '').strip()
+    
+  agencies.append(agency)
+
+#  for li in li_tag:
+#    print(li.get_text())
+#    if 'Agency' in li.get_text():
+#      agency = li.get_text().replace('November 7, 2024;', '').strip()
+#    else:
+#      agency = 'na'
+#    agency = agency.replace('Agency:', '').strip()
+#    agencies.append(agency)
+
+oig_df['Agency'] = agencies
+print(oig_df.head())
+```
+
+## Step 2: Making the scraper dynamic
+
+### 1. Turning the scraper into a function 
+
+* a. Pseudo-Code (PARTNER 2)
+
+
+* b. Create Dynamic Scraper (PARTNER 2)
+The final dataframe contains 1554 enforcement actions. The earliest enforcement action recorded is a Criminal and Civil Action dated 03/01/2023.
+
+```{python}
+def scraper(month, year):
+  if year < 2013:
+    return print('Restrict the year to post 2013')
+  if month > 12 or month < 0:
+    return print('Invalid month')
+  date_target = datetime(year, month, 1)
+
+  date_not_reached = True
+  page_number = 0
+
+  # create empty lists to store the data
+  titles = []
+  dates = []
+  categories = []
+  agencies = []
+  links =[]
+  while date_not_reached == True:
+
+    if page_number == 0:
+      url = 'https://oig.hhs.gov/fraud/enforcement/'
+    else:
+      url = f'https://oig.hhs.gov/fraud/enforcement/?page={page_number}'
+    #print(url)
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, 'lxml')
+
+    # find all relevant li tags that contain an h2 element
+    tag = soup.find_all('li')
+    li_tag = soup.find_all(lambda t: t.name == 'li' and t.find_all('h2'))
+
+    # loop over each li_tag and save all the relevant attribute info
+    for li in li_tag:
+      # get date
+      date = li.find('span').text if li.find('span') else None
+      date = datetime.strptime(date, '%B %d, %Y')
+      if date < date_target:
+        date_not_reached = False
+        break
+      dates.append(date)
+      # get title
+      title = li.find('a').text.strip() if li.find('a') else 'None'
+      titles.append(title)
+      # get category
+      #print(len(li.find('ul')))
+      link = li.find('a').get('href') if li.find('a') else None
+      links.append(link)
+
+      if len(li.find('ul')) >1:
+        ul_tag = li.find('ul')
+        joined_text = ', '.join(li.get_text(strip=True) for li in ul_tag.find_all('li'))
+        categories.append(joined_text)
+      else:
+        cat = li.find('ul').text if li.find('ul') else None
+        categories.append(cat)
+    #print('Title Count: ',len(titles),'\n','Date Count: ', len(dates))
+    page_number+=1
+    time.sleep(0.5)
+  #print(titles, dates, categories)
+
+  ym_df = pd.DataFrame({
+  'Title': titles,
+  'Date': dates,
+  'Category': categories,
+  'Link': links})
+
+  ym_df.to_csv(f'/Users/tarini_dewan/Desktop/UChicago/Python_2/enforcement_actions_{year}_{month}.csv')
+
+  return ym_df
+
+scraper(1, 2023)
+```
+
+* c. Test Partner's Code (PARTNER 1)
+The final dataframe contains 3042 enforcement actions. The earliest enforcement action recorded is a Criminal and Civil Action dated 04/01/21.
+
+```{python}
+#| eval: false
+scraper(1, 2021)
+```
+
+## Step 3: Plot data based on scraped data
+
+### 1. Plot the number of enforcement actions over time (PARTNER 2)
+
+```{python}
+# read in the data
+enforce_df = pd.read_csv('/Users/tarini_dewan/Desktop/UChicago/Python_2/enforcement_actions_2021_1.csv')
+
+#  line chart that shows the number of enforcement actions over time
+enf_time = alt.Chart(enforce_df).mark_line().encode(
+    alt.X('yearmonth(Date):T', title = 'Month-Year').axis(format = '%b-%Y'),
+    alt.Y('count(Category):Q', 
+    axis = alt.Axis(labelFontSize=10), sort = '-x', title = 'Number of Enforcement Actions')).properties(
+    title = 'Number of Enforcement Actions Over Time'
+    ).properties(
+    width=700,
+    height=400,
+)
+enf_time
+```
+
+### 2. Plot the number of enforcement actions categorized: (PARTNER 1)
+
+* based on "Criminal and Civil Actions" vs. "State Enforcement Agencies"
+
+```{python}
+enforce_df['criminal'] = enforce_df['Category'].apply(lambda x: 1 if 'Criminal and Civil Actions' in x else 0)
+enforce_df['state'] = enforce_df['Category'].apply(lambda x: 1 if 'State Enforcement Agencies' in x else 0)
+
+enforce_df['Date'] = pd.to_datetime(enforce_df['Date'], errors='coerce')
+enforce_df['year_month'] = enforce_df['Date'].dt.strftime('%Y-%m')
+
+enforce_df_group = enforce_df.groupby('year_month').agg({
+    'criminal': 'sum',
+    'state': 'sum'
+}).reset_index()
+
+# Reshape data from wide to long format for Altair
+enforce_df_melt = pd.melt(
+    enforce_df_group, 
+    id_vars=['year_month'], 
+    value_vars=['criminal', 'state'],
+    var_name='Action Type',
+    value_name='Count'
+)
+
+chart = alt.Chart(enforce_df_melt).mark_line().encode(
+    x=alt.X('year_month:N', 
+            title='Month-Year'),
+    y=alt.Y('Count:Q',
+            title='Number of Enforcement Actions'),
+    color=alt.Color('Action Type:N',
+                   title='Enforcement Type')
+).properties(
+    title='Number of Enforcement Actions Over Time by Type',
+    width=700,
+    height=200
+)
+
+chart
+
+#enforce_df_filtered = enforce_df[(enforce_df['Category'] == 'Criminal and Civil Actions') | (enforce_df['Category'] == 'State Enforcement Agencies')]
+#chart2 = alt.Chart(enforce_df_filtered).mark_line().encode(
+#    x=alt.X('year_month:N', title='Month-Year'),
+#    y=alt.Y('count():Q', title='Number of Enforcement Actions'),
+#    color=alt.Color('Category:N', title='Enforcement Type')
+#).properties(
+#    title='Number of Enforcement Actions Over Time by Type',
+#    width=700,
+#    height=400
+#)
+#chart2
+```
+
+* based on five topics
+
+```{python}
+# Define keywords for each topic
+enforce_df_crim = enforce_df[enforce_df['criminal'] == 1]
+topics = {
+    'Health Care Fraud': ['health', 'insurance', 'medical', 'medicare', 'prescription'],
+    'Financial Fraud': ['bank', 'financial', 'transaction', 'investment', 'fraud'],
+    'Drug Enforcement': ['drug', 'trafficking', 'narcotic', 'opioid'],
+    'Bribery/Corruption': ['bribery', 'corruption', 'bribe', 'kickback'],
+    'Other': []
+}
+
+# Function to categorize topics based on keywords
+def categorize_topic(title):
+    title = title.lower()
+    for topic, keywords in topics.items():
+        if any(keyword in title for keyword in keywords):
+            return topic
+    return 'Other'  
+
+# Apply the function to categorize each action
+enforce_df_crim['Topic'] = enforce_df_crim['Title'].apply(categorize_topic)
+
+chart = alt.Chart(enforce_df_crim).mark_line().encode(
+    x=alt.X('year_month:N', title='Month-Year'),
+    y=alt.Y('count():Q', title='Number of Enforcement Actions'),
+    color=alt.Color('Topic:N', title='Criminal and Civil Actions Topic')
+).properties(
+    title='Number of Criminal and Civil Actions Over Time by Topic',
+    width=700,
+    height=200
+)
+chart
+```
+
+## Step 4: Create maps of enforcement activity
+
+### 1. Map by State (PARTNER 1)
+
+```{python}
+import geopandas as gpd
+import matplotlib.pyplot as plt
+
+filepath = '/Users/tarini_dewan/Desktop/UChicago/Python_2/problem-set-4-shreya-and-tarini/gz_2010_us_860_00_500k/gz_2010_us_860_00_500k.shp'
+usa_df = gpd.read_file(filepath)
+
+usda_df = '/Users/tarini_dewan/Desktop/UChicago/Python_2/US_Attorney_Districts_Shapefile_simplified_20241109.csv'
+
+# extract state from agency
+#def get_state(agency):
+#    if isinstance(agency, str) and 'State of' in agency:
+#        return agency.replace('State of', '').strip()
+#    return None
+
+# Create the new column
+#enforce_df['state'] = enforce_df['Agency'].apply(extract_state)
+
+#map_state = pd.merge(enforce_df, usda_df, how = 'inner', left_on = 'state', right_on = 'STATE')
+
+```
+
+### 2. Map by District (PARTNER 2)
+
+```{python}
+
+```
+
+## Extra Credit
+
+### 1. Merge zip code shapefile with population
+```{python}
+
+```
+
+### 2. Conduct spatial join
+```{python}
+
+```
+
+### 3. Map the action ratio in each district
+```{python}
+
+```
