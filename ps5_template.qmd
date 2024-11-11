@@ -59,6 +59,7 @@ alt.renderers.enable("png")
 ### 1. Scraping (PARTNER 1)
 
 ```{python}
+#| eval: false
 url = 'https://oig.hhs.gov/fraud/enforcement/'
 response = requests.get(url)
 soup = BeautifulSoup(response.content, 'lxml')
@@ -106,12 +107,21 @@ oig_df = pd.DataFrame({
   'Date': dates,
   'Category': categories,
   'Link': links})
+
+# save the data
+oig_df.to_csv(f'/Users/tarini_dewan/Desktop/UChicago/Python_2/oig_df.csv')
+```
+
+```{python}
+# read in the oig data (for the first page) to display head()
+oig_df = pd.read_csv('/Users/tarini_dewan/Desktop/UChicago/Python_2/oig_df.csv')
 print(oig_df.head())
 ```
 
 ### 2. Crawling (PARTNER 1)
 
 ```{python}
+#| eval: false
 # create an empty list to store the agencies
 agencies = []
 
@@ -123,8 +133,6 @@ for i in range(len(links)):
   soup = BeautifulSoup(response.content, 'lxml')
 
 # extract the agency text from the link
-#li_tag = soup.find_all(lambda t: t.name == 'li' and t.find_all('span') and not t.find_all('button') and not t.find_all('ul') and not t.find_all('a'))
-  #li_tag = soup.find_all(lambda t: t.name == 'li' and t.find('span', class_='padding-right-2 text-base') and not 'Date' in t.find('span', class_='padding-right-2 text-base').get_text())
   ul_tag = soup.find('ul', class_ = 'usa-list usa-list--unstyled margin-y-2')
   agency = np.nan
   for ul in ul_tag:
@@ -133,17 +141,17 @@ for i in range(len(links)):
     
   agencies.append(agency)
 
-#  for li in li_tag:
-#    print(li.get_text())
-#    if 'Agency' in li.get_text():
-#      agency = li.get_text().replace('November 7, 2024;', '').strip()
-#    else:
-#      agency = 'na'
-#    agency = agency.replace('Agency:', '').strip()
-#    agencies.append(agency)
-
+# add the agency column to df
 oig_df['Agency'] = agencies
-print(oig_df.head())
+
+# save the data
+oig_df.to_csv(f'/Users/tarini_dewan/Desktop/UChicago/Python_2/oig_df_full.csv')
+```
+
+```{python}
+# read in the oig data (with agency info) to display head()
+oig_df_full = pd.read_csv('/Users/tarini_dewan/Desktop/UChicago/Python_2/oig_df_full.csv')
+print(oig_df_full.head())
 ```
 
 ## Step 2: Making the scraper dynamic
@@ -152,16 +160,43 @@ print(oig_df.head())
 
 * a. Pseudo-Code (PARTNER 2)
 
+- Step 1: Check if inputs make sense
+  - Make sure year is 2013 or later and month is between 1 and 12
+  - Create a date using the month and year
+
+- Step 2: Set up our starting point
+  - Create a flag to keep track if we're still looking (date_not_reached)
+  - Start at page 0
+  - Create empty lists to store attributes
+
+- Step 3: Main Loop: Keep going until we hit our target date
+  - While we haven't reached our date:
+    - If it's the first page (page 0), use main website URL
+    - If not first page, add page number to URL
+    - Get the webpage content
+    - Find all entries on the page
+    - For each entry we find:
+      - Get the date
+      - If this date is older than what we want, stop looking
+      - If not, save the attributes (excluding agency)
+    - Move to next page
+    - Wait half a second
+
+- Step 4: Put all our collected data into a dataframe and save as a CSV file
 
 * b. Create Dynamic Scraper (PARTNER 2)
 The final dataframe contains 1554 enforcement actions. The earliest enforcement action recorded is a Criminal and Civil Action dated 03/01/2023.
 
 ```{python}
+#| eval: false
 def scraper(month, year):
+  # set the condition for the year input
   if year < 2013:
     return print('Restrict the year to post 2013')
+  # set the condition for the month input
   if month > 12 or month < 0:
     return print('Invalid month')
+  # set target date
   date_target = datetime(year, month, 1)
 
   date_not_reached = True
@@ -176,10 +211,10 @@ def scraper(month, year):
   while date_not_reached == True:
 
     if page_number == 0:
+      # use the URL based on the page number
       url = 'https://oig.hhs.gov/fraud/enforcement/'
     else:
       url = f'https://oig.hhs.gov/fraud/enforcement/?page={page_number}'
-    #print(url)
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'lxml')
 
@@ -192,6 +227,7 @@ def scraper(month, year):
       # get date
       date = li.find('span').text if li.find('span') else None
       date = datetime.strptime(date, '%B %d, %Y')
+      # check if the date is before the target date
       if date < date_target:
         date_not_reached = False
         break
@@ -199,11 +235,10 @@ def scraper(month, year):
       # get title
       title = li.find('a').text.strip() if li.find('a') else 'None'
       titles.append(title)
-      # get category
-      #print(len(li.find('ul')))
+      # get links
       link = li.find('a').get('href') if li.find('a') else None
       links.append(link)
-
+      # get category
       if len(li.find('ul')) >1:
         ul_tag = li.find('ul')
         joined_text = ', '.join(li.get_text(strip=True) for li in ul_tag.find_all('li'))
@@ -211,22 +246,31 @@ def scraper(month, year):
       else:
         cat = li.find('ul').text if li.find('ul') else None
         categories.append(cat)
-    #print('Title Count: ',len(titles),'\n','Date Count: ', len(dates))
-    page_number+=1
-    time.sleep(0.5)
-  #print(titles, dates, categories)
 
+    # Increment the page number
+    page_number+=1
+    # Wait for half a second before the next request
+    time.sleep(0.5)
+  
+  # Create a DataFrame with the collected data
   ym_df = pd.DataFrame({
   'Title': titles,
   'Date': dates,
   'Category': categories,
   'Link': links})
 
+  # save df to a CSV file
   ym_df.to_csv(f'/Users/tarini_dewan/Desktop/UChicago/Python_2/enforcement_actions_{year}_{month}.csv')
 
   return ym_df
 
+# run scraper function for January 2023
 scraper(1, 2023)
+```
+
+```{python}
+jan_2023 = pd.read_csv('/Users/tarini_dewan/Desktop/UChicago/Python_2/enforcement_actions_2023_1.csv')
+print(jan_2023.head())
 ```
 
 * c. Test Partner's Code (PARTNER 1)
@@ -234,6 +278,7 @@ The final dataframe contains 3042 enforcement actions. The earliest enforcement 
 
 ```{python}
 #| eval: false
+# run scraper function for January 2021
 scraper(1, 2021)
 ```
 
@@ -244,6 +289,7 @@ scraper(1, 2021)
 ```{python}
 # read in the data
 enforce_df = pd.read_csv('/Users/tarini_dewan/Desktop/UChicago/Python_2/enforcement_actions_2021_1.csv')
+print(enforce_df.head())
 
 #  line chart that shows the number of enforcement actions over time
 enf_time = alt.Chart(enforce_df).mark_line().encode(
@@ -252,10 +298,40 @@ enf_time = alt.Chart(enforce_df).mark_line().encode(
     axis = alt.Axis(labelFontSize=10), sort = '-x', title = 'Number of Enforcement Actions')).properties(
     title = 'Number of Enforcement Actions Over Time'
     ).properties(
-    width=700,
-    height=400,
+    width=500,
+    height=300,
 )
 enf_time
+```
+
+```{python}
+#| eval: false
+from tqdm import tqdm
+agency_full = []
+
+# add full link path to the links collected for headlines from each page
+enforce_df['Full Link'] = enforce_df['Link'].apply(lambda x: 'https://oig.hhs.gov' + x)
+full_links = list(enforce_df['Full Link'])
+
+# loop over each full link
+for link in tqdm(full_links):
+  url = link
+  response = requests.get(url)
+  soup = BeautifulSoup(response.content, 'lxml')
+
+# extract the agency text from the links
+  ul_tag = soup.find('ul', class_ = 'usa-list usa-list--unstyled margin-y-2')
+  agency = np.nan
+  for ul in ul_tag:
+    if 'Agency' in ul.get_text():
+      agency = ul.get_text().replace('Agency:', '').strip()
+      
+  # Append the extracted agency to the agency_full list
+  agency_full.append(agency)
+
+# add agency column to main January 2021 dataframe
+enforce_df['Agency'] = agency_full
+enforce_df.to_csv('/Users/tarini_dewan/Desktop/UChicago/Python_2/enforce_df.csv')
 ```
 
 ### 2. Plot the number of enforcement actions categorized: (PARTNER 1)
@@ -263,59 +339,50 @@ enf_time
 * based on "Criminal and Civil Actions" vs. "State Enforcement Agencies"
 
 ```{python}
-enforce_df['criminal'] = enforce_df['Category'].apply(lambda x: 1 if 'Criminal and Civil Actions' in x else 0)
-enforce_df['state'] = enforce_df['Category'].apply(lambda x: 1 if 'State Enforcement Agencies' in x else 0)
+enforce_df = pd.read_csv('/Users/tarini_dewan/Desktop/UChicago/Python_2/enforce_df.csv')
+print(enforce_df.head())
 
+# create binary columns for "Criminal and Civil Actions" and "State Enforcement Agencies"
+enforce_df['Criminal and Civil Actions'] = enforce_df['Category'].apply(lambda x: 1 if 'Criminal and Civil Actions' in x else 0)
+enforce_df['State Enforcement Agencies'] = enforce_df['Category'].apply(lambda x: 1 if 'State Enforcement Agencies' in x else 0)
+
+# Convert 'Date' column to datetime and extract 'year_month'
 enforce_df['Date'] = pd.to_datetime(enforce_df['Date'], errors='coerce')
 enforce_df['year_month'] = enforce_df['Date'].dt.strftime('%Y-%m')
 
+# Group the data by 'year_month' and sum the counts
 enforce_df_group = enforce_df.groupby('year_month').agg({
-    'criminal': 'sum',
-    'state': 'sum'
+    'Criminal and Civil Actions': 'sum',
+    'State Enforcement Agencies': 'sum'
 }).reset_index()
 
 # Reshape data from wide to long format for Altair
 enforce_df_melt = pd.melt(
     enforce_df_group, 
     id_vars=['year_month'], 
-    value_vars=['criminal', 'state'],
+    value_vars=['Criminal and Civil Actions', 'State Enforcement Agencies'],
     var_name='Action Type',
     value_name='Count'
 )
 
+# Create a line chart using Altair
 chart = alt.Chart(enforce_df_melt).mark_line().encode(
-    x=alt.X('year_month:N', 
-            title='Month-Year'),
-    y=alt.Y('Count:Q',
-            title='Number of Enforcement Actions'),
-    color=alt.Color('Action Type:N',
-                   title='Enforcement Type')
+    x=alt.X('year_month:N', title='Month-Year'),
+    y=alt.Y('Count:Q', title='Number of Enforcement Actions'),
+    color=alt.Color('Action Type:N', title='Enforcement Type')
 ).properties(
     title='Number of Enforcement Actions Over Time by Type',
-    width=700,
-    height=200
+    width=400,
+    height=100
 )
-
 chart
-
-#enforce_df_filtered = enforce_df[(enforce_df['Category'] == 'Criminal and Civil Actions') | (enforce_df['Category'] == 'State Enforcement Agencies')]
-#chart2 = alt.Chart(enforce_df_filtered).mark_line().encode(
-#    x=alt.X('year_month:N', title='Month-Year'),
-#    y=alt.Y('count():Q', title='Number of Enforcement Actions'),
-#    color=alt.Color('Category:N', title='Enforcement Type')
-#).properties(
-#    title='Number of Enforcement Actions Over Time by Type',
-#    width=700,
-#    height=400
-#)
-#chart2
 ```
 
 * based on five topics
 
 ```{python}
-# Define keywords for each topic
-enforce_df_crim = enforce_df[enforce_df['criminal'] == 1]
+# define keywords for each topic
+enforce_df_crim = enforce_df[enforce_df['Criminal and Civil Actions'] == 1]
 topics = {
     'Health Care Fraud': ['health', 'insurance', 'medical', 'medicare', 'prescription'],
     'Financial Fraud': ['bank', 'financial', 'transaction', 'investment', 'fraud'],
@@ -324,7 +391,7 @@ topics = {
     'Other': []
 }
 
-# Function to categorize topics based on keywords
+# function to categorize topics based on keywords
 def categorize_topic(title):
     title = title.lower()
     for topic, keywords in topics.items():
@@ -332,7 +399,7 @@ def categorize_topic(title):
             return topic
     return 'Other'  
 
-# Apply the function to categorize each action
+# apply function to categorize each action
 enforce_df_crim['Topic'] = enforce_df_crim['Title'].apply(categorize_topic)
 
 chart = alt.Chart(enforce_df_crim).mark_line().encode(
@@ -341,8 +408,8 @@ chart = alt.Chart(enforce_df_crim).mark_line().encode(
     color=alt.Color('Topic:N', title='Criminal and Civil Actions Topic')
 ).properties(
     title='Number of Criminal and Civil Actions Over Time by Topic',
-    width=700,
-    height=200
+    width=400,
+    height=100
 )
 chart
 ```
@@ -354,44 +421,119 @@ chart
 ```{python}
 import geopandas as gpd
 import matplotlib.pyplot as plt
+from shapely import wkt
 
+# read census shapefile
 filepath = '/Users/tarini_dewan/Desktop/UChicago/Python_2/problem-set-4-shreya-and-tarini/gz_2010_us_860_00_500k/gz_2010_us_860_00_500k.shp'
 usa_df = gpd.read_file(filepath)
 
-usda_df = '/Users/tarini_dewan/Desktop/UChicago/Python_2/US_Attorney_Districts_Shapefile_simplified_20241109.csv'
+# read US District Attorney shapefine
+usda_df = pd.read_csv('/Users/tarini_dewan/Desktop/UChicago/Python_2/US_Attorney_Districts_Shapefile_simplified_20241109.csv')
 
-# extract state from agency
-#def get_state(agency):
-#    if isinstance(agency, str) and 'State of' in agency:
-#        return agency.replace('State of', '').strip()
-#    return None
+# Convert WKT strings to geometry objects
+usda_df['geometry'] = usda_df['the_geom'].apply(wkt.loads)
+usda_df = gpd.GeoDataFrame(usda_df, geometry='geometry', crs='EPSG:4326')
 
-# Create the new column
-#enforce_df['state'] = enforce_df['Agency'].apply(extract_state)
+# Dissolve geometries by 'STATE' to get state-level geometries
+usda_df_new = usda_df.dissolve(by='STATE')
 
-#map_state = pd.merge(enforce_df, usda_df, how = 'inner', left_on = 'state', right_on = 'STATE')
+# extract state name from agency
+def get_state(agency):
+    if isinstance(agency, str) and 'State of' in agency:
+        return agency.replace('State of', '').strip()
+    return np.nan
 
+# apply function to create a new 'state' column in enforce_df
+enforce_df['state'] = enforce_df['Agency'].apply(get_state)
+
+# number of enforcement actions per state
+state_df = pd.DataFrame(enforce_df['state'].value_counts())
+
+# merge the state counts with District Attorney GeoDataFrame
+map_state = pd.merge(state_df, usda_df_new, how = 'right', left_on = 'state', right_on = 'STATE')
+
+# fill missing counts with zero
+map_state['count'] = map_state['count'].fillna(0)
+
+# Define the Albers equal-area projection for the United States
+albers_crs = "+proj=aea +lat_1=20 +lat_2=60 +lat_0=40 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs"
+
+# convert to a GeoDataFrame with the crs
+map_state = gpd.GeoDataFrame(map_state, geometry='geometry', crs='EPSG:4326')
+
+# Project to Albers
+map_state_albers = map_state.to_crs(albers_crs)
+
+# map showing the number of enforcement actions per state
+plt.figure(figsize=(50, 30), dpi=1000)
+ax = map_state_albers.plot(
+    column='count',
+    cmap='Reds',
+    edgecolor='black',
+    vmin=0,
+    vmax=map_state_albers['count'].max(),
+    legend=True,
+    legend_kwds={'label': "Number of Enforcement Actions", 'orientation': "horizontal"}
+)
+ax.set_axis_off()
+plt.title('Number of Enforcement Actions for Each State')
+plt.show()
 ```
 
 ### 2. Map by District (PARTNER 2)
 
 ```{python}
+import re
 
-```
+# extract district name from agency info
+def get_district(agency):
+    if isinstance(agency, str) and 'District' in agency:
+        # Find everything from 'District' onwards using regex
+        district_match = re.search(r'(?:Southern |Eastern |Western |Northern |Central )?District.*$', agency)
+        if district_match:
+            district = district_match.group(0)
+            
+            # remove special characters but keep spaces and alphanumeric chars
+            district = re.sub(r'[^a-zA-Z0-9\s]', '', district)
+            
+            # remove extra whitespace and convert multiple spaces to single space
+            district = ' '.join(district.split())
+            
+            return district if district else np.nan
+    return np.nan
+# Attribution: ChatGPT
+# Query: I want to extract everything that comes after 'District,' regardless of what comes before it and removing special characters
 
-## Extra Credit
+# Create district column by applying the get_district function
+enforce_df['district'] = enforce_df['Agency'].apply(get_district)
 
-### 1. Merge zip code shapefile with population
-```{python}
+# Create a DataFrame with the count of enforcement actions each district
+district_df = pd.DataFrame(enforce_df['district'].value_counts())
 
-```
+# merge district counts with the USDA DataFrame
+map_district = pd.merge(district_df, usda_df, how = 'right', left_on = 'district', right_on = 'Judicial District ')
 
-### 2. Conduct spatial join
-```{python}
+# Fill missing counts with zero
+map_district['count'] = map_district['count'].fillna(0)
 
-```
+# Convert to a GeoDataFrame with crs
+map_district = gpd.GeoDataFrame(map_district, geometry='geometry', crs='EPSG:4326')
 
-### 3. Map the action ratio in each district
-```{python}
+# Project to Albers
+map_district_albers = map_district.to_crs(albers_crs)
 
+# map showing number of enforcement actions for each district
+plt.figure(figsize=(50, 30), dpi=1000)
+ax = map_district_albers.plot(
+    column='count',
+    cmap='Reds',
+    edgecolor='black',
+    vmin=0,
+    vmax=map_state_albers['count'].max(),
+    legend=True,
+    legend_kwds={'label': "Number of Enforcement Actions", 'orientation': "horizontal"}
+)
+ax.set_axis_off()
+plt.title('Number of Enforcement Actions for Each District')
+plt.show()
 ```
